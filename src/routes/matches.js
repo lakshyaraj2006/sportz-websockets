@@ -14,7 +14,7 @@ matchRouter.get('/', async (req, res) => {
     if (!parsed.success) {
         return res.status(400).json({
             error: 'Invalid error',
-            details: JSON.stringify(parsed.error)
+            details: parsed.error.issues
         })
     }
 
@@ -32,19 +32,20 @@ matchRouter.get('/', async (req, res) => {
         });
     } catch (e) {
         console.log(e)
-        res.status(500).json({error: 'Failed to fetch matches', details: JSON.stringify(e)})
+        res.status(500).json({error: 'Failed to fetch matches'})
     }
 })
 
 matchRouter.post('/', async (req, res) => {
     const parsed = createMatchSchema.safeParse(req.body);
-    const {data: {startTime, endTime, homeScore, awayScore}} = parsed;
     if (!parsed.success) {
         return res.status(400).json({
             error: 'Invalid error',
             details: JSON.stringify(parsed.error)
         })
     }
+
+    const {data: {startTime, endTime, homeScore, awayScore}} = parsed;
 
     try {
         const [event] = await db.insert(matches).values({
@@ -55,6 +56,14 @@ matchRouter.post('/', async (req, res) => {
             awayScore: awayScore ?? 0,
             status: getMatchStatus(startTime, endTime),
         }).returning();
+
+        if (typeof res.app.locals.broadcastMatchCreated === 'function') {
+            try {
+                res.app.locals.broadcastMatchCreated(event);
+            } catch (broadcastError) {
+                console.error('Failed to broadcast match_created event', broadcastError);
+            }
+        }
 
         res.status(201).json({
             data: event,
